@@ -1,10 +1,12 @@
 # main.py - My City Game
-# Шаг 10: рабочие кнопки и экономика
+# Шаг 11: правильное расположение + автодоход + сохранение
 
 import pygame
 import sys
 import random
 import math
+import json
+import os
 
 pygame.init()
 
@@ -42,9 +44,13 @@ font_big = pygame.font.SysFont("Arial", 20, bold=True)
 font_mid = pygame.font.SysFont("Arial", 16, bold=True)
 font_small = pygame.font.SysFont("Arial", 13, bold=True)
 
-# --- Экономика игрока ---
-player_gold = 73900   # 73.9K
+# --- Файл сохранения ---
+SAVE_FILE = "save_data.json"
+
+# --- Экономика ---
+player_gold = 73900
 player_gems = 875
+gold_income_timer = 0  # каждые 60 кадров = 1 сек
 
 
 # --- Класс здания ---
@@ -60,6 +66,16 @@ class Building:
 
     def income(self):
         return self.level * 10
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "level": self.level,
+            "x": self.rect.x,
+            "y": self.rect.y,
+            "w": self.rect.width,
+            "h": self.rect.height,
+        }
 
     def draw(self, surface, cam_x, cam_y):
         r = self.rect.move(cam_x, cam_y)
@@ -101,7 +117,7 @@ class Building:
         pygame.draw.polygon(surface, self.roof_color, roof_pts)
         pygame.draw.polygon(surface, (0, 0, 0, 60), roof_pts, 2)
 
-        # Уровень здания (звёздочка сверху)
+        # Уровень
         lvl_txt = font_small.render(f"Lv.{self.level}", True, GOLD)
         lvl_rect = lvl_txt.get_rect(center=(r.centerx, r.y - 50))
         surface.blit(lvl_txt, lvl_rect)
@@ -116,8 +132,7 @@ class Building:
         surface.blit(text, text_rect)
 
     def hit(self, pos, cam_x, cam_y):
-        r = self.rect.move(cam_x, cam_y)
-        return r.collidepoint(pos)
+        return self.rect.move(cam_x, cam_y).collidepoint(pos)
 
 
 # --- Дерево ---
@@ -139,6 +154,41 @@ class Tree:
                            (x + 8, y - 10), self.size - 8)
 
 
+# --- Загрузка/сохранение ---
+def load_game():
+    global player_gold, player_gems
+    if os.path.exists(SAVE_FILE):
+        try:
+            with open(SAVE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            player_gold = data.get("gold", 73900)
+            player_gems = data.get("gems", 875)
+            for b in data.get("buildings", []):
+                for bld in buildings:
+                    if bld.name == b["name"]:
+                        bld.level = b["level"]
+            print("✅ Игра загружена")
+            return True
+        except Exception as e:
+            print("⚠ Ошибка загрузки:", e)
+    return False
+
+
+def save_game():
+    data = {
+        "gold": player_gold,
+        "gems": player_gems,
+        "buildings": [b.to_dict() for b in buildings],
+    }
+    try:
+        with open(SAVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print("💾 Игра сохранена")
+    except Exception as e:
+        print("⚠ Ошибка сохранения:", e)
+
+
+# --- Фон ---
 def draw_path(surface, cam_x, cam_y, points, width=30):
     moved = [(x + cam_x, y + cam_y) for x, y in points]
     for i in range(len(moved) - 1):
@@ -148,9 +198,9 @@ def draw_path(surface, cam_x, cam_y, points, width=30):
 
 def draw_river(surface, cam_x, cam_y):
     river_pts = []
-    for i in range(-200, 1200, 40):
+    for i in range(-300, 1400, 40):
         wave = math.sin(i * 0.01) * 20
-        river_pts.append((i + cam_x, 80 + wave + cam_y))
+        river_pts.append((i + cam_x, 70 + wave + cam_y))
     if len(river_pts) > 1:
         pygame.draw.lines(surface, WATER_DARK, False, river_pts, 50)
         pygame.draw.lines(surface, WATER_COLOR, False, river_pts, 40)
@@ -184,18 +234,16 @@ def draw_top_panel(surface):
     people = font_big.render("8/8", True, WHITE)
     surface.blit(people, (170, 14))
 
-    # Золото
     pygame.draw.circle(surface, GOLD, (320, 25), 12)
     pygame.draw.circle(surface, (180, 140, 30), (320, 25), 12, 2)
-    gold_str = f"{player_gold / 1000:.1f}K" if player_gold >= 1000 else str(player_gold)
+    gold_str = f"{player_gold / 1000:.1f}K" if player_gold >= 1000 else str(int(player_gold))
     gold = font_big.render(gold_str, True, GOLD)
     surface.blit(gold, (340, 14))
 
-    # Алмаз
     diamond_pts = [(540, 14), (552, 25), (540, 36), (528, 25)]
     pygame.draw.polygon(surface, GEM_BLUE, diamond_pts)
     pygame.draw.polygon(surface, (60, 130, 200), diamond_pts, 2)
-    gems = font_big.render(str(player_gems), True, GEM_BLUE)
+    gems = font_big.render(str(int(player_gems)), True, GEM_BLUE)
     surface.blit(gems, (560, 14))
 
 
@@ -222,13 +270,10 @@ def draw_bottom_panel(surface):
 
 
 def draw_popup(surface, building):
-    """Рисует всплывающее окно. Возвращает (btn_upgrade_rect, btn_close_rect)"""
-    # Затемнение
     dim = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
     dim.fill((0, 0, 0, 140))
     surface.blit(dim, (0, 0))
 
-    # Окно
     w, h = 500, 360
     x = (SCREEN_WIDTH - w) // 2
     y = (SCREEN_HEIGHT - h) // 2
@@ -236,7 +281,6 @@ def draw_popup(surface, building):
     pygame.draw.rect(surface, (50, 50, 70), popup_rect, border_radius=15)
     pygame.draw.rect(surface, (120, 120, 160), popup_rect, 3, border_radius=15)
 
-    # Заголовок
     title = font_big.render(f"{building.name} — Уровень {building.level}", True, WHITE)
     title_rect = title.get_rect(center=(x + w // 2, y + 30))
     surface.blit(title, title_rect)
@@ -244,7 +288,6 @@ def draw_popup(surface, building):
     pygame.draw.line(surface, (120, 120, 160),
                      (x + 20, y + 55), (x + w - 20, y + 55), 2)
 
-    # Информация
     cost = building.upgrade_cost()
     income = building.income()
     next_income = (building.level + 1) * 10
@@ -259,35 +302,25 @@ def draw_popup(surface, building):
         txt = font_mid.render(line, True, (220, 220, 240))
         surface.blit(txt, (x + 30, y + 80 + i * 30))
 
-    # Кнопка Улучшить
     btn_w, btn_h = 220, 50
     btn_x = x + w // 2 - btn_w // 2
     btn_y = y + h - 80
     btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
 
-    # Если золота не хватает — серая
     if player_gold >= cost:
-        color = BTN_GREEN
-        color_dark = BTN_GREEN_DARK
+        color, color_dark = BTN_GREEN, BTN_GREEN_DARK
         label = "УЛУЧШИТЬ"
     else:
-        color = BTN_GREY
-        color_dark = BTN_GREY_DARK
+        color, color_dark = BTN_GREY, BTN_GREY_DARK
         label = "НЕ ХВАТАЕТ ЗОЛОТА"
 
     pygame.draw.rect(surface, color, btn_rect, border_radius=10)
     pygame.draw.rect(surface, color_dark, btn_rect, 3, border_radius=10)
 
-    # Размер шрифта подгоняем
-    if player_gold >= cost:
-        btn_text = font_big.render(label, True, WHITE)
-    else:
-        btn_text = font_mid.render(label, True, WHITE)
-
+    btn_text = font_big.render(label, True, WHITE) if player_gold >= cost else font_mid.render(label, True, WHITE)
     btn_text_rect = btn_text.get_rect(center=btn_rect.center)
     surface.blit(btn_text, btn_text_rect)
 
-    # Кнопка закрыть
     close_rect = pygame.Rect(x + w - 40, y + 10, 30, 30)
     pygame.draw.rect(surface, (180, 60, 60), close_rect, border_radius=8)
     pygame.draw.line(surface, WHITE, (x + w - 33, y + 17), (x + w - 17, y + 33), 3)
@@ -297,11 +330,10 @@ def draw_popup(surface, building):
 
 
 def draw_notification(surface, text, timer):
-    """Всплывающее уведомление снизу"""
     if timer <= 0:
         return
     alpha = min(255, timer * 4)
-    w, h = 300, 50
+    w, h = 340, 50
     x = (SCREEN_WIDTH - w) // 2
     y = SCREEN_HEIGHT - 150
 
@@ -315,25 +347,34 @@ def draw_notification(surface, text, timer):
     surface.blit(txt, tr)
 
 
-# --- Данные ---
+# --- Данные: здания расположены ПО ЦЕНТРУ карты ---
+# Карта: от -400 до +400 по X, от -300 до +300 по Y
+# Центр — (0,0) соответствует центру экрана
 buildings = [
-    Building(180, 180, 90, 70, "Ратуша", ROOF_RED, level=2),
-    Building(400, 130, 80, 60, "Лесопилка", ROOF_BROWN, level=1),
-    Building(560, 280, 80, 60, "Ферма", ROOF_RED, level=3),
-    Building(80, 380, 90, 70, "Казарма", ROOF_BROWN, level=1),
-    Building(680, 430, 80, 60, "Шахта", ROOF_BROWN, level=2),
+    Building(-100, -100, 90, 70, "Ратуша", ROOF_RED, level=2),        # центр слева
+    Building(150, -150, 80, 60, "Лесопилка", ROOF_BROWN, level=1),    # сверху справа
+    Building(250, 50, 80, 60, "Ферма", ROOF_RED, level=3),           # справа
+    Building(-250, 100, 90, 70, "Казарма", ROOF_BROWN, level=1),     # слева
+    Building(300, 200, 80, 60, "Шахта", ROOF_BROWN, level=2),        # правый низ
 ]
 
+# Деревья вокруг, но не на зданиях
 trees = []
 random.seed(42)
-for _ in range(25):
-    x = random.randint(-200, 1000)
-    y = random.randint(180, 700)
-    if not any(abs(x - b.rect.x) < 130 and abs(y - b.rect.y) < 100 for b in buildings):
+for _ in range(30):
+    x = random.randint(-450, 450)
+    y = random.randint(-250, 300)
+    if not any(abs(x - b.rect.x) < 130 and abs(y - b.rect.y) < 110 for b in buildings):
         trees.append(Tree(x, y, random.randint(20, 35)))
 
+# Дорожки между зданиями (в центре карты)
 path_points = [
-    (220, 250), (440, 200), (600, 340), (120, 450), (720, 490)
+    (-100, -60),   # от Ратуши
+    (150, -100),   # к Лесопилке
+    (250, 100),    # к Ферме
+    (-250, 150),   # к Казарме
+    (300, 250),    # к Шахте
+    (0, 250),      # финальная точка
 ]
 
 cam_x = 0
@@ -350,7 +391,9 @@ notification_timer = 0
 def main():
     global cam_x, cam_y, dragging, last_mouse_x, last_mouse_y
     global selected_building, mouse_down_pos
-    global player_gold, notification_text, notification_timer
+    global player_gold, notification_text, notification_timer, gold_income_timer
+
+    load_game()
 
     clock = pygame.time.Clock()
     running = True
@@ -358,6 +401,7 @@ def main():
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_game()
                 running = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -375,9 +419,7 @@ def main():
 
                     if is_tap:
                         if selected_building:
-                            # Открыто меню — проверяем кнопки
                             btn_rect, close_rect = draw_popup(screen, selected_building)
-
                             if close_rect.collidepoint(event.pos):
                                 selected_building = None
                             elif btn_rect.collidepoint(event.pos):
@@ -385,13 +427,13 @@ def main():
                                 if player_gold >= cost:
                                     player_gold -= cost
                                     selected_building.level += 1
-                                    notification_text = f"{selected_building.name} улучшен до ур. {selected_building.level}!"
+                                    notification_text = f"{selected_building.name} → ур. {selected_building.level}!"
                                     notification_timer = 120
+                                    save_game()
                                 else:
                                     notification_text = "Недостаточно золота!"
                                     notification_timer = 120
                         else:
-                            # Проверяем попадание по зданию
                             for b in buildings:
                                 if b.hit(event.pos, cam_x, cam_y):
                                     selected_building = b
@@ -406,10 +448,17 @@ def main():
                 cam_y += dy
                 last_mouse_x, last_mouse_y = event.pos
 
-        cam_x = max(-400, min(400, cam_x))
-        cam_y = max(-300, min(300, cam_y))
+        # Ограничения камеры (чтобы центр не уезжал далеко)
+        cam_x = max(-300, min(300, cam_x))
+        cam_y = max(-200, min(200, cam_y))
 
-        # Таймер уведомления
+        # --- Автодоход: каждую секунду + общий доход ---
+        gold_income_timer += 1
+        if gold_income_timer >= 60:
+            gold_income_timer = 0
+            total_income = sum(b.income() for b in buildings)
+            player_gold += total_income
+
         if notification_timer > 0:
             notification_timer -= 1
 
