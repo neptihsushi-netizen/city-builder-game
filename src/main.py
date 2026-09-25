@@ -1,13 +1,13 @@
 # main.py - My City Game
-# Первый прототип игры на Pygame
+# Шаг 6: камера + нижняя панель меню
 
 import pygame
 import sys
 
-# Инициализация Pygame
+# Инициализация
 pygame.init()
 
-# Настройки экрана
+# Экран
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -19,10 +19,12 @@ DARK_GREEN = (45, 110, 45)
 WOOD_COLOR = (160, 82, 45)
 ROOF_COLOR = (200, 80, 60)
 WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
+BLACK = (20, 20, 30)
+GOLD = (255, 215, 0)
 
-# Шрифт
-font = pygame.font.SysFont("Arial", 20, bold=True)
+# Шрифты
+font_big = pygame.font.SysFont("Arial", 22, bold=True)
+font_small = pygame.font.SysFont("Arial", 16)
 
 # Класс здания
 class Building:
@@ -30,67 +32,150 @@ class Building:
         self.rect = pygame.Rect(x, y, width, height)
         self.name = name
 
-    def draw(self, surface):
+    def draw(self, surface, cam_x, cam_y):
+        # Сдвигаем здание с учётом камеры
+        draw_rect = self.rect.move(cam_x, cam_y)
+
         # Тень
-        shadow = self.rect.move(5, 5)
-        pygame.draw.rect(surface, (0, 0, 0, 80), shadow, border_radius=5)
+        shadow = draw_rect.move(5, 5)
+        pygame.draw.rect(surface, (30, 60, 30), shadow, border_radius=5)
 
         # Стены
-        pygame.draw.rect(surface, WOOD_COLOR, self.rect, border_radius=5)
+        pygame.draw.rect(surface, WOOD_COLOR, draw_rect, border_radius=5)
 
-        # Крыша (треугольник)
+        # Крыша
         roof_points = [
-            (self.rect.x - 10, self.rect.y),
-            (self.rect.x + self.rect.width // 2, self.rect.y - 35),
-            (self.rect.x + self.rect.width + 10, self.rect.y),
+            (draw_rect.x - 10, draw_rect.y),
+            (draw_rect.x + draw_rect.width // 2, draw_rect.y - 35),
+            (draw_rect.x + draw_rect.width + 10, draw_rect.y),
         ]
         pygame.draw.polygon(surface, ROOF_COLOR, roof_points)
 
-        # Название здания
-        text = font.render(self.name, True, WHITE)
-        text_rect = text.get_rect(center=self.rect.center)
+        # Название
+        text = font_small.render(self.name, True, WHITE)
+        text_rect = text.get_rect(center=draw_rect.center)
         surface.blit(text, text_rect)
 
 
-# Создаём список зданий
+# Здания на карте
 buildings = [
     Building(200, 200, 90, 70, "Ратуша"),
     Building(400, 150, 80, 60, "Лесопилка"),
     Building(550, 300, 80, 60, "Ферма"),
     Building(100, 400, 90, 70, "Казарма"),
+    Building(700, 450, 80, 60, "Шахта"),
 ]
 
-# Главный игровой цикл
+# Камера
+cam_x = 0
+cam_y = 0
+CAM_SPEED = 8
+
+# Нижняя панель
+PANEL_HEIGHT = 70
+menu_items = [
+    ("⚔", "Завоевание"),
+    ("🛡", "Герои"),
+    ("🔒", ""),
+    ("🔒", ""),
+    ("🌍", "Мир"),
+]
+
+
+def draw_background(surface, cam_x, cam_y):
+    """Рисует траву с учётом камеры"""
+    surface.fill(GRASS_GREEN)
+    tile = 60
+    start_x = -(cam_x % tile)
+    start_y = -(cam_y % tile)
+
+    for x in range(start_x, SCREEN_WIDTH + tile, tile):
+        for y in range(start_y, SCREEN_HEIGHT + tile, tile):
+            grid_x = (x - cam_x) // tile
+            grid_y = (y - cam_y) // tile
+            if (grid_x + grid_y) % 2 == 0:
+                pygame.draw.rect(surface, DARK_GREEN, (x, y, tile, tile))
+
+
+def draw_top_panel(surface):
+    """Верхняя панель с ресурсами"""
+    pygame.draw.rect(surface, BLACK, (0, 0, SCREEN_WIDTH, 50))
+    pygame.draw.line(surface, (60, 60, 80), (0, 50), (SCREEN_WIDTH, 50), 2)
+
+    timer = font_big.render("⏱ 01:19", True, WHITE)
+    gold = font_big.render("💰 73,9K", True, GOLD)
+    gems = font_big.render("💎 875", True, (100, 200, 255))
+    people = font_big.render("👥 8/8", True, WHITE)
+
+    surface.blit(timer, (20, 12))
+    surface.blit(people, (180, 12))
+    surface.blit(gold, (340, 12))
+    surface.blit(gems, (560, 12))
+
+
+def draw_bottom_panel(surface):
+    """Нижняя панель меню"""
+    panel_y = SCREEN_HEIGHT - PANEL_HEIGHT
+    pygame.draw.rect(surface, BLACK, (0, panel_y, SCREEN_WIDTH, PANEL_HEIGHT))
+    pygame.draw.line(surface, (60, 60, 80), (0, panel_y), (SCREEN_WIDTH, panel_y), 2)
+
+    # Кнопки
+    button_width = SCREEN_WIDTH // len(menu_items)
+    for i, (icon, label) in enumerate(menu_items):
+        x = i * button_width
+        center_x = x + button_width // 2
+
+        # Иконка
+        icon_text = font_big.render(icon, True, WHITE)
+        icon_rect = icon_text.get_rect(center=(center_x, panel_y + 25))
+        surface.blit(icon_text, icon_rect)
+
+        # Подпись
+        if label:
+            label_text = font_small.render(label, True, (200, 200, 220))
+            label_rect = label_text.get_rect(center=(center_x, panel_y + 52))
+            surface.blit(label_text, label_rect)
+
+
 def main():
+    global cam_x, cam_y
+
     clock = pygame.time.Clock()
     running = True
 
     while running:
-        # Обработка событий
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        # 1. Рисуем фон (трава в клеточку)
-        screen.fill(GRASS_GREEN)
-        tile_size = 50
-        for x in range(0, SCREEN_WIDTH, tile_size):
-            for y in range(0, SCREEN_HEIGHT, tile_size):
-                if (x // tile_size + y // tile_size) % 2 == 0:
-                    pygame.draw.rect(screen, DARK_GREEN, (x, y, tile_size, tile_size))
+        # Управление камерой стрелками
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            cam_x += CAM_SPEED
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            cam_x -= CAM_SPEED
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            cam_y += CAM_SPEED
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            cam_y -= CAM_SPEED
 
-        # 2. Рисуем здания
-        for building in buildings:
-            building.draw(screen)
+        # Ограничение движения камеры
+        cam_x = max(-400, min(400, cam_x))
+        cam_y = max(-300, min(300, cam_y))
 
-        # 3. Рисуем верхнюю панель (HUD)
-        pygame.draw.rect(screen, BLACK, (0, 0, SCREEN_WIDTH, 40))
-        gold_text = font.render("💰 73,9K", True, (255, 215, 0))
-        timer_text = font.render("⏱ 01:19", True, WHITE)
-        screen.blit(gold_text, (20, 10))
-        screen.blit(timer_text, (200, 10))
+        # 1. Фон
+        draw_background(screen, cam_x, cam_y)
 
-        # Обновляем экран
+        # 2. Здания
+        for b in buildings:
+            b.draw(screen, cam_x, cam_y)
+
+        # 3. Верхняя панель
+        draw_top_panel(screen)
+
+        # 4. Нижняя панель
+        draw_bottom_panel(screen)
+
         pygame.display.flip()
         clock.tick(60)
 
